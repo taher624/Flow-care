@@ -1,0 +1,909 @@
+<title>Flow Care Dashboard</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Varela+Round&display=swap">
+<style>
+/* Layout: live hospital control room. Sticky bar (live clock, departments),
+   then one view at a time: Home, a department, Log a patient, or Hajj & Ramadan. */
+:root{
+  --bg:#06111A; --panel:#0B1C25; --panel-2:#0F2530; --line:#1B3A46;
+  --fg:#E4EFF2; --muted:#8AA6AE; --accent:#35D3E6; --gold:#D9B26A;
+  --ok:#41C98E; --warn:#F0B44C; --crit:#F2675F;
+  --display:"Varela Round","Nunito",ui-rounded,system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:14px;line-height:1.45}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--panel)}
+button,input{font:inherit}
+button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.gut{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.in{max-width:1240px;margin:0 auto}
+
+/* sticky bar */
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--panel);border-bottom:1px solid var(--line)}
+.bar .row{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding-block:10px 6px}
+.brand{display:flex;align-items:baseline;gap:10px;margin-right:auto;cursor:pointer;background:none;border:0;color:inherit;padding:0}
+.brand b{font-family:var(--display);font-weight:400;font-size:22px;color:var(--accent)}
+.brand span{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.09em}
+.clock{font-family:var(--mono);font-size:15px;font-variant-numeric:tabular-nums}
+.chip{font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.chip.season{border-color:var(--gold);color:var(--gold)}
+.ctrls{display:flex;gap:6px;flex-wrap:wrap}
+.btn{background:var(--panel-2);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:#03141A;border-color:var(--accent);font-weight:600}
+.btn.small{padding:4px 10px;font-size:12.5px}
+nav{display:flex;gap:4px;overflow-x:auto;padding-bottom:8px;scrollbar-width:none}
+nav::-webkit-scrollbar{display:none}
+nav a{color:var(--muted);text-decoration:none;padding:6px 12px;border-radius:8px;white-space:nowrap;font-size:13.5px;border:1px solid transparent}
+nav a:hover{color:var(--fg)}
+nav a[aria-current="page"]{color:var(--fg);background:var(--panel-2);border-color:var(--line)}
+nav a.season-tab{color:var(--gold)}
+nav a .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:6px;vertical-align:middle;background:var(--sev,transparent)}
+.timeline{display:flex;gap:10px;align-items:center;padding-bottom:10px}
+.timeline input{flex:1;accent-color:var(--accent);min-width:0}
+.timeline small{color:var(--muted);font-family:var(--mono);font-size:11px;white-space:nowrap}
+
+main{display:flex;flex-direction:column;gap:16px;padding-block:16px 32px}
+h1{font-family:var(--display);font-weight:400;font-size:26px;margin:0;text-wrap:balance}
+h2{font-family:var(--display);font-weight:400;font-size:17px;margin:0;text-wrap:balance}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.lede{color:var(--muted);margin:4px 0 0;max-width:70ch}
+.note{color:var(--muted);font-size:12px;margin:0}
+.note strong{color:var(--fg);font-weight:500}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.panel-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px}
+.cols{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:880px){.cols{grid-template-columns:1fr}}
+.pill{font-size:11px;font-weight:600;padding:2px 9px;border-radius:99px;background:color-mix(in srgb,var(--sev) 18%,transparent);color:var(--sev);white-space:nowrap}
+.pagehead{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
+
+/* home: department tiles */
+.status-line{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.tile{background:var(--panel);border:1px solid var(--line);border-top:3px solid var(--sev);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;text-decoration:none;color:inherit;transition:border-color .15s,transform .15s}
+.tile:hover{border-color:var(--accent);border-top-color:var(--sev);transform:translateY(-1px)}
+.tile .top{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.big{font-family:var(--mono);font-size:26px;font-variant-numeric:tabular-nums;line-height:1}
+.big small{font-size:12.5px;color:var(--muted);margin-left:4px}
+.meter{height:6px;border-radius:3px;background:var(--panel-2);position:relative;overflow:hidden}
+.meter i{position:absolute;inset:0 auto 0 0;background:var(--sev);border-radius:3px}
+.meter b{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--fg);opacity:.85}
+.tile .issue{font-size:12.5px;color:var(--muted);min-height:2.9em}
+.tile .open{font-size:12.5px;color:var(--accent)}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+.stat .v{font-family:var(--mono);font-size:24px;font-variant-numeric:tabular-nums;line-height:1.1}
+.stat .v.hot{color:var(--sev)}
+.stat .t{font-size:12.5px;color:var(--muted)}
+
+/* chart */
+.tabs{display:flex;gap:4px;flex-wrap:wrap}
+.tab{background:none;border:1px solid var(--line);color:var(--muted);border-radius:99px;padding:3px 10px;font-size:12.5px;cursor:pointer}
+.tab[aria-pressed="true"]{border-color:var(--accent);color:var(--fg);background:var(--panel-2)}
+.chart{width:100%;height:auto;display:block}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--muted);align-items:center}
+.legend i{display:inline-block;width:18px;height:0;border-top:2px solid;vertical-align:middle;margin-right:6px}
+.toggle{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);cursor:pointer}
+.fline{font-size:13.5px}
+.fline b{font-family:var(--mono);font-weight:500}
+
+/* actions */
+.list{display:flex;flex-direction:column;gap:8px}
+.item{border:1px solid var(--line);border-left:3px solid var(--sev);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;background:var(--panel-2)}
+.item .who{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--sev)}
+.item p{margin:0}
+.item .why{color:var(--muted);font-size:12.5px}
+.item .acts{display:flex;gap:6px;flex-wrap:wrap}
+.item.done{opacity:.6}
+.status{font-size:12.5px;color:var(--ok);font-weight:500}
+.status.no{color:var(--muted)}
+.calm{color:var(--muted);font-size:13px;margin:0}
+
+/* journey */
+.journey{display:grid;grid-template-columns:repeat(6,minmax(0,1fr))}
+@media (max-width:760px){.journey{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}
+.step{padding:10px 12px;border-left:1px solid var(--line);display:flex;flex-direction:column;gap:2px}
+.step:first-child{border-left:0}
+@media (max-width:760px){.step{border:1px solid var(--line);border-radius:8px}}
+.step .n{font-family:var(--mono);font-size:22px;font-variant-numeric:tabular-nums}
+.step .t{font-size:12.5px;color:var(--muted)}
+.step.flag .n{color:var(--warn)}
+
+/* facts table */
+.facts{display:grid;grid-template-columns:1fr auto;gap:6px 14px;font-size:13px}
+.facts span:nth-child(odd){color:var(--muted)}
+.facts span:nth-child(even){font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+
+.proof{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.proof div{border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.proof b{font-family:var(--mono);font-size:19px;font-weight:500;color:var(--accent);display:block}
+.proof b.meh{color:var(--muted)}
+.proof span{font-size:12.5px;color:var(--muted)}
+
+/* seasons */
+.season-hero{border:1px solid color-mix(in srgb,var(--gold) 45%,var(--line));background:linear-gradient(120deg,color-mix(in srgb,var(--gold) 10%,var(--panel)),var(--panel) 60%);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.season-hero h1{color:var(--gold)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{background:none;border:0;color:var(--muted);padding:7px 14px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--gold);color:#1A1407;font-weight:600}
+.plan{display:flex;flex-direction:column;gap:8px}
+.plan li{margin:0}
+.plan ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+.dayctl{display:flex;gap:10px;align-items:center}
+.dayctl input{flex:1;accent-color:var(--gold);min-width:0}
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:520px}
+th,td{text-align:right;padding:7px 10px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+th:first-child,td:first-child{text-align:left}
+th{font-weight:500;color:var(--muted);font-size:12px}
+td.best{color:var(--ok);font-weight:600}
+footer{color:var(--muted);font-size:12px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* live + logging */
+.live{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:14px;font-variant-numeric:tabular-nums}
+.live i{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 60%,transparent);animation:pulse 2s infinite}
+@keyframes pulse{70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+nav a.log-tab{color:var(--accent);font-weight:600}
+.btn.cta{background:var(--accent);color:#03141A;border-color:var(--accent);font-weight:600;text-decoration:none;display:inline-block}
+.q{display:flex;flex-direction:column;gap:8px}
+.q h3{margin:0;font-size:13px;font-weight:500;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip-btn{background:var(--panel-2);border:1px solid var(--line);color:var(--fg);border-radius:10px;padding:9px 14px;cursor:pointer;min-height:42px}
+.chip-btn[aria-pressed="true"]{background:color-mix(in srgb,var(--accent) 20%,var(--panel-2));border-color:var(--accent)}
+.chip-btn.dest{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;min-width:150px}
+.chip-btn.dest small{color:var(--muted);font-size:11.5px}
+.bigbtn{background:var(--accent);color:#03141A;border:0;border-radius:12px;padding:14px 18px;font-weight:600;font-size:16px;cursor:pointer;width:100%}
+.bigbtn:disabled{opacity:.45;cursor:not-allowed}
+.done-card{border:1px solid var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--panel));border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.done-card b{font-family:var(--mono)}
+.plist{display:flex;flex-direction:column;gap:8px}
+.prow{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel-2)}
+.prow .code{font-family:var(--mono);font-weight:500}
+.prow .meta{color:var(--muted);font-size:12.5px;flex:1 1 220px;min-width:0}
+.prow.out{opacity:.55}
+.tag{font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+.tag.in{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 50%,var(--line))}
+.daychips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
+.daychips::-webkit-scrollbar{display:none}
+.daychips .tab{white-space:nowrap}
+</style>
+
+<div class="bar">
+  <div class="in gut">
+    <div class="row">
+      <button class="brand" id="brand" type="button"><b>Flow Care</b><span>Hospital-wide patient flow</span></button>
+      <span class="chip" id="period"></span>
+      <span class="live" title="Riyadh time"><i aria-hidden="true"></i><span id="clock" aria-live="polite"></span></span>
+    </div>
+    <nav id="nav" aria-label="Departments"></nav>
+  </div>
+</div>
+
+<main class="in gut" id="view"></main>
+
+<div class="in gut"><footer>Flow Care · Trimed team · Medathon 2026. Live prototype: the hospital is simulated (no real patient data) and runs on Riyadh time. The AI learned from 2023–2025 and was tested on 2026 so far. Patients you log are shared with everyone who has this link. Recommendations support staff; clinicians decide.</footer></div>
+
+<script>
+const D = /*__DATA__*/null;
+const M = D.metrics;
+const CAP = {ed:40, med:120, surg:52, icu:16, mat:46, ld:10};
+const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const RIYADH = 3 * 3600e3;
+const START_UTC = Date.parse(D.start + ":00Z") - RIYADH;      // feed is in Riyadh local time
+const ARAFAH = {2026: Date.UTC(2026,4,26), 2027: Date.UTC(2027,4,15)};
+const RAMADAN = [[Date.UTC(2026,1,18), Date.UTC(2026,2,20)], [Date.UTC(2027,1,8), Date.UTC(2027,2,10)]];
+const idxOf = ms => Math.floor((ms - START_UTC) / 3600e3);
+let i = 24, route = "home", feedEnded = false;
+
+const $ = id => document.getElementById(id);
+const dt = k => new Date(START_UTC + k * 3600e3 + RIYADH);          // read with getUTC* = Riyadh time
+const local = ms => new Date(ms + RIYADH);
+const pad = n => String(n).padStart(2,"0");
+const hh = d => pad(d.getUTCHours()) + ":00";
+const hm = ms => { const d = local(ms); return pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()); };
+const dayName = d => `${DAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+const dayLabel = s => dayName(new Date(s + "T00:00Z"));
+const pct = (v, cap) => Math.round(100 * v / cap);
+const sevOf = p => p >= 95 ? "crit" : p >= 85 ? "warn" : "ok";
+const SEV = {ok:"var(--ok)", warn:"var(--warn)", crit:"var(--crit)", info:"var(--gold)"};
+const STATUS = {ok:"Normal", warn:"Busy", crit:"Under pressure"};
+const sum = (a, from, to) => { let s=0; for (let k=Math.max(0,from); k<Math.min(a.length,to); k++) s += a[k]; return s; };
+const sinceMidnight = (a, k) => sum(a, k - dt(k).getUTCHours(), k + 1);
+const weekend = k => [5,6].includes(dt(k).getUTCDay());
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const dayMs = k => { const d = dt(k); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
+const daysToArafah = k => { const y = dt(k).getUTCFullYear(); return ARAFAH[y] ? Math.round((ARAFAH[y] - dayMs(k)) / 864e5) : 999; };
+const ramadanDay = k => { const t = dayMs(k); for (const [a,b] of RAMADAN) if (t >= a && t < b) return Math.round((t-a)/864e5) + 1; return 0; };
+
+function period(k){
+  if (D.hajjP[k]) return {t:"Hajj days · heat-illness peak", s:true};
+  if (D.eid[k]) return {t: Math.abs(daysToArafah(k)) <= 6 ? "Eid al-Adha holiday" : "Eid al-Fitr holiday", s:true};
+  if (D.hajjS[k]) { const n = daysToArafah(k); return {t: n > 0 ? `Hajj season · ${n} day${n>1?"s":""} to Arafah` : "Hajj season · pilgrims leaving", s:true}; }
+  if (D.ramadan[k]) return {t:`Ramadan · day ${ramadanDay(k)}`, s:true};
+  return {t: weekend(k) ? "Weekend" : "Normal working day", s:false};
+}
+
+/* ============ logged patients (shared) ============ */
+const DEST = {
+  ed:{label:"Emergency (ED)", short:"ED", hint:"Being seen, then home"},
+  medicine:{label:"Internal Medicine", short:"Medicine", hint:"Admit to a medical bed"},
+  surgery:{label:"Surgery", short:"Surgery", hint:"Admit to a surgical bed"},
+  labour:{label:"OB/GYN · labour", short:"Labour", hint:"Delivery room, then maternity"},
+  maternity:{label:"OB/GYN · maternity", short:"Maternity", hint:"Maternity ward bed"},
+  icu:{label:"ICU", short:"ICU", hint:"Intensive care bed"},
+};
+const OVER = ["med","medF","medP","bMed","surg","surgF","surgP","bSurg","icu","icuF","bIcu","mat","matF","matP",
+  "ld","ldF","obTriage","edTotal","edTotalF","edWait","edWaitF","edP","edArr","edHeat","scanQ","births"];
+const BASE = Object.fromEntries(OVER.map(f => [f, D[f].slice()]));
+let patients = [], store = "connecting", col = null, canWrite = true, myId = null;
+
+function applyOverlay(){
+  for (const f of OVER) D[f] = BASE[f].slice();
+  const N = D.n;
+  const add = (f, a, b, v=1) => { for (let k=Math.max(0,a); k<Math.min(N,b); k++) D[f][k] += v; };
+  for (const p of patients){
+    const kL = idxOf(p.loggedAt); if (kL >= N || kL < -2000) continue;
+    const kOut = p.status === "out" && p.outAt ? idxOf(p.outAt) : null;
+    const known = (f, a, b) => { for (let j=Math.max(kL, a-8, 0); j<Math.min(N, b-8); j++) D[f][j] += 1; };
+    const stayH = Math.max(1, (+p.stayDays || 2) * 24);
+    if (p.dest === "ed"){
+      const kE = kOut ?? kL + 4; add("edTotal", kL, kE); add("edArr", kL, kL+1); if (p.heat) add("edHeat", kL, kL+1); known("edTotalF", kL, kE);
+    } else if (p.dest === "medicine" || p.dest === "surgery" || p.dest === "icu"){
+      const f = {medicine:"med", surgery:"surg", icu:"icu"}[p.dest], kE = kOut ?? kL + stayH;
+      add(f, kL, kE); known(f+"F", kL, kE);
+      if (p.heat) add("edHeat", kL, kL+1);
+      if (p.scan){ const kS = p.scanAt ? idxOf(p.scanAt) : kL + 6; add("scanQ", kL, Math.min(kS, kE)); }
+    } else if (p.dest === "labour"){
+      const kD = kL + 10, kE = kOut ?? kD + stayH;
+      add("ld", kL, Math.min(kD, kE)); known("ldF", kL, Math.min(kD, kE));
+      add("mat", kD, kE); known("matF", kD, kE); if (kD < kE) add("births", kD, kD+1);
+    } else if (p.dest === "maternity"){
+      const kE = kOut ?? kL + stayH; add("mat", kL, kE); known("matF", kL, kE);
+    }
+  }
+  // full wards spill over: patients wait in the ED (or in OB triage)
+  for (let k=Math.max(0,i-30); k<Math.min(N,i+60); k++){
+    for (const [f, b] of [["med","bMed"],["surg","bSurg"],["icu","bIcu"]]){
+      const c = CAP[f];
+      if (D[f][k] > c){ const o = D[f][k]-c; D[f][k]=c; D[b][k]+=o; D.edWait[k]+=o; D.edTotal[k]+=o; }
+      if (D[f+"F"][k] > c){ const o = D[f+"F"][k]-c; D[f+"F"][k]=c; D.edWaitF[k]+=o; }
+    }
+    if (D.mat[k] > CAP.mat){ D.ld[k] += D.mat[k]-CAP.mat; D.mat[k] = CAP.mat; }
+    if (D.matF[k] > CAP.mat){ D.matF[k] = CAP.mat; }
+    if (D.ld[k] > CAP.ld){ D.obTriage[k] += D.ld[k]-CAP.ld; D.ld[k] = CAP.ld; }
+  }
+  // early warnings follow the updated forecast
+  for (let k=Math.max(0,i-2); k<Math.min(N,i+2); k++){
+    if (D.medF[k] >= 116.5) D.medP[k] = Math.max(D.medP[k], 0.7);
+    if (D.surgF[k] >= 49.5) D.surgP[k] = Math.max(D.surgP[k], 0.7);
+    if (D.matF[k] >= 43.5) D.matP[k] = Math.max(D.matP[k], 0.7);
+    if (D.edWaitF[k] >= 8) D.edP[k] = Math.max(D.edP[k], 0.7);
+  }
+}
+
+async function connectStore(){
+  const use = window.claude && window.claude.use;
+  const db = use ? await window.claude.use("db").catch(() => null) : null;
+  if (!db){ store = "local"; render(); return; }
+  const user = await window.claude.use("user").catch(() => null);
+  if (user){ try { myId = await user.id(); } catch(e){} try { const c = await user.can("data.write"); if (c === false) canWrite = false; } catch(e){} }
+  col = db.collection("patients");
+  const slow = setTimeout(() => { if (store === "connecting"){ store = "slow"; render(); } }, 10000);
+  col.orderBy("loggedAt", "desc").limit(400).onSnapshot(snap => {
+    clearTimeout(slow);
+    patients = snap.docs.map(d => ({id:d.id, ...d.data()}));
+    store = "shared"; applyOverlay(); render();
+  }, err => { clearTimeout(slow); store = "error"; render(); });
+}
+
+async function savePatient(p){
+  if (col && (store === "shared" || store === "slow")){
+    try { await col.doc(p.id).set(p); return true; }
+    catch(e){ if (e && e.code === "invalid_argument"){ canWrite = false; } lastError = e && e.code === "quota_exceeded" ? "The shared list is full. Remove old patients to log new ones." : "Couldn't save to the shared list. Try again."; render(); return false; }
+  }
+  patients.unshift(p); applyOverlay(); render(); return true;
+}
+async function changePatient(id, patch){
+  if (col && store === "shared"){ try { await col.doc(id).update(patch); } catch(e){ lastError = "Couldn't update that patient. Try again."; render(); } return; }
+  const p = patients.find(x => x.id === id); if (p) Object.assign(p, patch); applyOverlay(); render();
+}
+async function removePatient(id){
+  if (col && store === "shared"){ try { await col.doc(id).delete(); } catch(e){ lastError = "Couldn't remove that patient. Try again."; render(); } return; }
+  patients = patients.filter(x => x.id !== id); applyOverlay(); render();
+}
+
+/* ============ departments ============ */
+const DEPTS = [
+  {id:"medicine", name:"Internal Medicine", blurb:"Medical wards · 120 beds"},
+  {id:"surgery", name:"Surgery", blurb:"Surgical wards · 52 beds · daily operating list"},
+  {id:"ed", name:"Emergency (ED)", blurb:"40 treatment spaces · patients waiting for ward beds"},
+  {id:"obgyn", name:"OB/GYN", blurb:"10 delivery rooms · maternity ward 46 beds"},
+  {id:"icu", name:"ICU", blurb:"16 beds · step-down to wards"},
+];
+function deptState(id, k){
+  switch(id){
+    case "medicine": { const p = pct(D.med[k],CAP.med), f = pct(D.medF[k],CAP.med);
+      return {sev: D.medP[k]>=0.5 ? "crit" : sevOf(Math.max(p,f)), big:p+"%", sub:`${CAP.med-D.med[k]} beds free`, fill:p, mark:f, f:`${f}% in 8 h`}; }
+    case "surgery": { const p = pct(D.surg[k],CAP.surg), f = pct(D.surgF[k],CAP.surg);
+      return {sev: D.surgP[k]>=0.5 ? "crit" : sevOf(Math.max(p,f)), big:p+"%", sub:`${CAP.surg-D.surg[k]} beds free`, fill:p, mark:f, f:`${f}% in 8 h`}; }
+    case "ed": { const p = pct(D.edTotal[k],CAP.ed);
+      const sev = D.edWait[k]>=8 || D.edP[k]>=0.5 || p>=110 ? "crit" : D.edWait[k]>=3 || p>=90 ? "warn" : "ok";
+      return {sev, big:D.edTotal[k], sub:`/ ${CAP.ed} spaces`, fill:Math.min(p,100), mark:null, f:`${D.edWait[k]} waiting for a bed · ${Math.round(D.edWaitF[k])} in 8 h`}; }
+    case "obgyn": { const p = pct(D.mat[k],CAP.mat), f = pct(D.matF[k],CAP.mat);
+      const sev = D.matP[k]>=0.5 || D.obTriage[k]>0 ? "crit" : sevOf(Math.max(p,f, pct(D.ld[k],CAP.ld)-5));
+      return {sev, big:p+"%", sub:`maternity · ${CAP.mat-D.mat[k]} free`, fill:p, mark:f, f:`${D.ld[k]}/${CAP.ld} delivery rooms · ${f}% in 8 h`}; }
+    case "icu": { const free = CAP.icu - D.icu[k], p = pct(D.icu[k],CAP.icu);
+      const sev = free<=1 || D.bIcu[k]>0 ? "crit" : free<=3 ? "warn" : "ok";
+      return {sev, big:D.icu[k], sub:`of ${CAP.icu} beds used`, fill:p, mark:null, f:`${free} free now`}; }
+  }
+}
+
+/* ============ recommendations ============ */
+function recs(k){
+  const out = [], later = hh(dt(k+8));
+  const add = (dept, id, sev, who, what, why) => out.push({dept, id, sev, who, what, why});
+  if (D.medP[k] >= 0.5 && D.med[k] < 117){
+    const n = Math.min(D.medReady[k], Math.max(3, Math.round(D.medF[k] - 0.92*CAP.med)));
+    add("medicine","full","crit","Internal Medicine · Bed management",
+      n>0 ? `Prioritise discharge of ${n} patient${n>1?"s":""} already cleared to go home.` : "Prepare overflow beds for the medical wards.",
+      `AI warning: ${Math.round(D.medP[k]*100)}% chance the medical wards are full by ${later} (forecast ${Math.round(D.medF[k])} of ${CAP.med} beds). ${D.medReady[k]} patients are cleared to go home.`);
+  }
+  if (D.bMed[k] >= 3) add("medicine","board","warn","Internal Medicine · ED",
+    `${D.bMed[k]} admitted patients are waiting in the ED for a medical bed.`, "Assign beds as soon as discharges happen.");
+  if (D.scanQ[k] >= Math.max(8, 1.6*D.scanQN[k])) add("medicine","scan", D.scanQ[k] >= 2*D.scanQN[k] ? "crit":"warn","Radiology",
+    `Add scan slots: ${D.scanQ[k]} inpatients are waiting for imaging.`,
+    `Normal for this time of week is about ${Math.round(D.scanQN[k])}. Patients cannot go home until scans are done and reviewed.`);
+  if (D.medReady[k] >= D.medReadyN[k] + 6 && !out.some(o=>o.id==="full"))
+    add("medicine","ready","warn","Internal Medicine", `${D.medReady[k]} patients are cleared to go home but still on the ward.`,
+      D.eid[k] ? "Eid holiday discharges are slow. Keep a discharge team and pharmacy on duty." :
+      weekend(k) ? "Weekend discharges are slower. Finishing paperwork now frees beds before the evening ED peak." :
+      D.ramadan[k] ? "Ramadan working hours are shorter. Complete discharges between 10:00 and 15:00." :
+      `About ${Math.round(D.medReadyN[k])} is normal for this hour.`);
+  if (D.surgP[k] >= 0.5 && D.surg[k] < 50){
+    const nextList = dt(k).getUTCHours() < 8 ? "this morning's" : "tomorrow's";
+    add("surgery","full","crit","Surgery · Theatre", `Free surgical beds before ${nextList} operating list.`,
+      `AI warning: ${Math.round(D.surgP[k]*100)}% chance the surgical wards are full by ${later}. ${D.surgReady[k]} patients are cleared to go home. Without free beds, planned operations get cancelled on the day.`);
+  }
+  const cancelled = sinceMidnight(D.surgCancel, k);
+  if (cancelled > 0) add("surgery","cancel","warn","Surgery · Theatre",
+    `${cancelled} planned operation${cancelled>1?"s were":" was"} cancelled today because no bed was free.`, "Rebook these patients first and check tomorrow's list against the bed forecast.");
+  if (D.bSurg[k] >= 2) add("surgery","board","warn","Surgery · ED", `${D.bSurg[k]} surgical patients are waiting in the ED for a bed.`, "Prioritise surgical discharges this afternoon.");
+  if (D.edP[k] >= 0.5 || (D.edWaitF[k] >= 8 && D.edWaitF[k] > D.edWait[k] + 1))
+    add("ed","wait", D.edWaitF[k] >= 8 ? "crit":"warn","Emergency · Bed management",
+      `Expect about ${Math.round(D.edWaitF[k])} admitted patients waiting in the ED by ${later}.`,
+      `Now ${D.edWait[k]} waiting. The wards are the bottleneck: medical ${pct(D.med[k],CAP.med)}%, surgical ${pct(D.surg[k],CAP.surg)}%, ICU ${D.icu[k]}/${CAP.icu}.`);
+  if (D.edTotal[k] >= CAP.ed) add("ed","over","crit","Emergency", `ED over capacity: ${D.edTotal[k]} patients in ${CAP.ed} spaces. Open the overflow area.`,
+    "Move stable admitted patients to a holding area so new arrivals can be seen.");
+  const arr3 = sum(D.edArr, k-2, k+1), norm3 = sum(D.edArrN, k-2, k+1);
+  if (arr3 >= 25 && arr3 > 1.35*norm3) add("ed","surge","warn","Emergency · Staffing",
+    `Arrivals are ${Math.round(100*(arr3/norm3-1))}% above normal for this time. Call in extra staff.`, `${arr3} arrivals in the last 3 h; about ${Math.round(norm3)} is normal.`);
+  const heat6 = sum(D.edHeat, k-5, k+1);
+  if (heat6 >= 4) add("ed","heat","crit","Emergency · ICU", `Heat-illness surge: ${heat6} cases in the last 6 h. Open the cooling bay.`,
+    "Alert ICU: about 1 in 4 admitted heat-stroke patients needs intensive care.");
+  const tr = sum(D.transfers, k-23, k+1);
+  if (tr > 0) add("ed","transfer","warn","Emergency · Bed management",
+    `${tr} admitted patient${tr>1?"s":""} transferred to other hospitals in the last 24 h for lack of beds.`, "Activate the surge plan and ask nearby hospitals about extra beds.");
+  if (D.matP[k] >= 0.5 && D.mat[k] < 44){
+    const n = Math.min(D.matReady[k], Math.max(2, Math.round(D.matF[k] - 0.9*CAP.mat)));
+    add("obgyn","full","crit","OB/GYN · Maternity ward",
+      n>0 ? `Discharge ${n} mother${n>1?"s":""} and babies already cleared to go home.` : "Prepare extra postnatal beds.",
+      `AI warning: ${Math.round(D.matP[k]*100)}% chance the maternity ward is full by ${later}. If it fills, delivered mothers stay in delivery rooms and women in labour wait.`);
+  }
+  if (D.obTriage[k] > 0) add("obgyn","triage","crit","OB/GYN · Delivery suite",
+    `${D.obTriage[k]} wom${D.obTriage[k]>1?"en":"an"} in labour waiting for a delivery room.`, `All ${CAP.ld} delivery rooms are in use.`);
+  else if (D.ldBlocked[k] > 0) add("obgyn","blocked","warn","OB/GYN · Maternity ward",
+    `${D.ldBlocked[k]} mother${D.ldBlocked[k]>1?"s have":" has"} delivered but no maternity bed is free.`, "They are blocking delivery rooms. Speed up postnatal discharges.");
+  const csp = sinceMidnight(D.csPost, k);
+  if (csp > 0) add("obgyn","cs","warn","OB/GYN", `${csp} planned caesarean${csp>1?"s":""} postponed today: no maternity bed.`, "Rebook as first case tomorrow and keep a bed reserved.");
+  const free = CAP.icu - D.icu[k];
+  if (free <= 1) add("icu","full","crit","ICU · Theatre", `ICU has ${free===0?"no free beds":"1 free bed"}. Check the next operating list for cases that need ICU.`,
+    "Step down stable patients where safe, so planned surgery is not cancelled at the last minute.");
+  if (D.bIcu[k] > 0) add("icu","edwait","crit","ICU · Emergency", `${D.bIcu[k]} critically ill patient${D.bIcu[k]>1?"s are":" is"} waiting in the ED for an ICU bed.`,
+    "Escalate to the ICU consultant on call; consider transfer if no bed within 2 h.");
+  if (D.icuBlocked[k] > 0) add("icu","step","warn","ICU · Bed management", `Find a ward bed for ${D.icuBlocked[k]} ICU patient${D.icuBlocked[k]>1?"s":""} ready to step down.`,
+    "Each one blocks an ICU bed that a new critical patient may need.");
+  const n = daysToArafah(k);
+  if (D.hajjS[k] && n >= -3 && n <= 3) add("icu","heatprep","warn","ICU", "Hajj days: keep 2 ICU beds reserved for heat stroke.", "Heat-stroke admissions peak around the Day of Arafah.");
+  if (D.hajjS[k] && !D.hajjP[k] && n-2 >= 1 && n-2 <= 10) add("hospital","hajj","info","Hospital leadership",
+    `Hajj days start in ${n-2} day${n-2>1?"s":""}. Review the 7-day surge plan.`, "Open Hajj & Ramadan for forecast ED visits, heat cases and the bed and staff plan.");
+  if (D.ramadan[k] && dt(k).getUTCHours() >= 14 && dt(k).getUTCHours() <= 18) add("hospital","ram","info","Hospital leadership",
+    "Ramadan: the ED is busiest from 7 pm to midnight. Shift staff to evening.", "Run discharges between 10:00 and 15:00 and keep imaging open in the evening.");
+  return out;
+}
+
+/* ============ shared pieces ============ */
+const decisions = new Map();
+function actionsHTML(list){
+  if (!list.length) return `<p class="calm">Flow is normal. No action needed.</p>`;
+  const order = {crit:0, warn:1, info:2};
+  return list.slice().sort((a,b)=>order[a.sev]-order[b.sev]).map(r => {
+    const key = i+"-"+r.dept+"-"+r.id, dec = decisions.get(key);
+    return `<article class="item ${dec?'done':''}" style="--sev:${SEV[r.sev]}">
+      <span class="who">${esc(r.who)}</span><p>${esc(r.what)}</p><p class="why">${esc(r.why)}</p>
+      ${dec ? `<span class="status ${dec==='Dismissed'?'no':''}">${dec}</span>`
+            : `<div class="acts"><button class="btn small" data-k="${key}" data-v="Approved" type="button">Approve</button><button class="btn small" data-k="${key}" data-v="Dismissed" type="button">Dismiss</button></div>`}
+    </article>`;
+  }).join("");
+}
+
+function hourChart(o){
+  const W=640, H=240, L=46, R=16, Tp=14, B=30;
+  const val = v => o.cap ? 100*v/o.cap : v;
+  const past=[]; for (let k=i-24;k<=i;k++) past.push(val(o.series[k]));
+  const fc = val(o.f[i]);
+  let lo, hi, step;
+  if (o.cap){ lo = Math.max(0, Math.floor((Math.min(...past, fc)-8)/10)*10); hi=100; step = hi-lo>60 ? 20 : 10; }
+  else { lo=0; hi=Math.max(10, Math.ceil(Math.max(...past, fc, 4)*1.1/5)*5); step = hi>40?20:hi>20?10:5; }
+  const x = h => L + (h+24)*(W-L-R)/32, y = v => Tp + (hi-v)*(H-Tp-B)/(hi-lo);
+  let s = "";
+  for (let v=lo; v<=hi; v+=step){
+    s += `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/>`;
+    s += `<text x="${L-8}" y="${y(v)+4}" fill="var(--muted)" font-size="11" text-anchor="end" font-family="var(--mono)">${v}${o.cap?"%":""}</text>`;
+  }
+  s += `<rect x="${x(0)}" y="${Tp}" width="${x(8)-x(0)}" height="${H-Tp-B}" fill="var(--accent)" opacity=".06"/>`;
+  if (o.warnLine != null){ const wv = val(o.warnLine);
+    if (wv >= lo && wv <= hi) s += `<line x1="${L}" x2="${W-R}" y1="${y(wv)}" y2="${y(wv)}" stroke="var(--crit)" stroke-dasharray="4 4" stroke-width="1.2"/><text x="${L+6}" y="${y(wv)-5}" fill="var(--crit)" font-size="11">Warning line</text>`; }
+  [[-24,"−24 h"],[-16,"−16 h"],[-8,"−8 h"],[0,"Now"],[8,"+8 h"]].forEach(([h,l]) =>
+    s += `<text x="${x(h)}" y="${H-10}" fill="${h===0?'var(--fg)':'var(--muted)'}" font-size="11" text-anchor="middle">${l}</text>`);
+  s += `<line x1="${x(0)}" x2="${x(0)}" y1="${Tp}" y2="${H-B}" stroke="var(--fg)" stroke-opacity=".35"/>`;
+  const pts = past.map((v,j)=>`${x(j-24).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  s += `<polygon points="${x(-24)},${y(lo)} ${pts} ${x(0)},${y(lo)}" fill="var(--accent)" opacity=".10"/>`;
+  s += `<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linejoin="round"/>`;
+  s += `<line x1="${x(0)}" y1="${y(past[24])}" x2="${x(8)}" y2="${y(fc)}" stroke="var(--accent)" stroke-width="2.2" stroke-dasharray="6 5"/>`;
+  s += `<circle cx="${x(0)}" cy="${y(past[24])}" r="4" fill="var(--accent)"/><circle cx="${x(8)}" cy="${y(fc)}" r="5" fill="var(--bg)" stroke="var(--accent)" stroke-width="2.2"/>`;
+  const u = o.cap ? "%" : "";
+  return {svg:s, line:`${esc(o.label)} now <b>${Math.round(val(o.series[i]))}${u}</b> → AI forecast for ${hh(dt(i+8))}: <b>${Math.round(fc)}${u}</b>`};
+}
+const chartTab = {};
+function chartPanel(key, tabs){
+  const cur = chartTab[key] && tabs[chartTab[key]] ? chartTab[key] : Object.keys(tabs)[0];
+  chartTab[key] = cur;
+  const c = hourChart(tabs[cur]);
+  return `<section class="panel" aria-label="Forecast">
+    <div class="panel-head"><h2>Next 8 hours</h2>
+      <div class="tabs">${Object.entries(tabs).map(([k,t]) => `<button class="tab" type="button" data-chart="${key}" data-tab="${k}" aria-pressed="${k===cur}">${esc(t.tab)}</button>`).join("")}</div></div>
+    <div class="fline">${c.line}</div>
+    <svg class="chart" viewBox="0 0 640 240" role="img" aria-label="Last 24 hours and AI forecast for the next 8 hours">${c.svg}</svg>
+    <div class="legend"><span><i style="border-color:var(--accent)"></i>Last 24 hours</span>
+      <span><i style="border-color:var(--accent);border-top-style:dashed"></i>AI forecast</span>
+      <span>Updates every hour · includes patients your team logged</span></div>
+  </section>`;
+}
+function stat(v, t, sev){ return `<div class="stat" style="--sev:${SEV[sev||'ok']}"><span class="v ${sev && sev!=='ok' ? 'hot':''}">${v}</span><span class="t">${esc(t)}</span></div>`; }
+const small = s => `<small style="font-size:13px;color:var(--muted)">${s}</small>`;
+function proofHTML(items){ return `<div class="proof">${items.map(([b,s,meh]) => `<div><b class="${meh?'meh':''}">${b}</b><span>${esc(s)}</span></div>`).join("")}</div>`; }
+const F = M.forecasts, W = M.warnings;
+const accF = (k, unit) => [`± ${F[k].ai_error} ${unit}`, `Average AI error 8 h ahead in 2026 so far (simple guess: ± ${F[k].simple_guess_error}). ${F[k].improvement_pct}% more accurate.`];
+const accW = k => [`${W[k].pct_warned}%`, `of ${W[k].episodes} times this area filled up in 2026, the AI warned at least 2 h ahead (typically ${W[k].median_lead_h} h). ${W[k].pct_alerts_correct}% of warnings were right.`];
+const loggedIn = (dest, k) => patients.filter(p => p.dest === dest && p.status !== "out" && idxOf(p.loggedAt) <= k && k < idxOf(p.loggedAt) + (dest==="ed" ? 4 : (+p.stayDays||2)*24 + (dest==="labour"?10:0))).length;
+
+/* ============ views ============ */
+function viewHome(){
+  const all = recs(i), states = DEPTS.map(d => ({...d, st: deptState(d.id, i)}));
+  const crit = states.filter(s => s.st.sev==="crit").length, warn = states.filter(s => s.st.sev==="warn").length;
+  const overall = crit ? "crit" : warn ? "warn" : "ok";
+  const headline = crit ? `${crit} department${crit>1?"s":""} under pressure` : warn ? `${warn} department${warn>1?"s":""} busy` : "Patient flow is normal";
+  const per = period(i), order = {crit:0,warn:1,info:2};
+  const tiles = states.map(s => {
+    const first = all.filter(r => r.dept===s.id).sort((a,b)=>order[a.sev]-order[b.sev])[0];
+    return `<a class="tile" href="#${s.id}" style="--sev:${SEV[s.st.sev]}">
+      <div class="top"><h2>${s.name}</h2><span class="pill">${STATUS[s.st.sev]}</span></div>
+      <div class="big">${s.st.big}<small>${esc(s.st.sub)}</small></div>
+      <div class="meter" aria-hidden="true"><i style="width:${Math.min(s.st.fill,100)}%"></i>${s.st.mark!=null?`<b style="left:calc(${Math.min(s.st.mark,100)}% - 1px)"></b>`:""}</div>
+      <div class="issue">${first ? esc(first.what) : "Flow normal. No action needed."}</div>
+      <span class="open">${esc(s.st.f)} · Open →</span></a>`;
+  }).join("");
+  const today = patients.filter(p => p.loggedAt >= Date.now() - 864e5).length;
+  const steps = [
+    [D.edTotal[i]-D.edWait[i], "Being seen in the ED"],
+    [D.edWait[i], "Admitted, waiting for a bed", D.edWait[i]>=3],
+    [D.med[i]+D.surg[i]+D.icu[i]+D.mat[i], "On the wards, ICU & maternity"],
+    [D.scanQ[i], "Waiting for a scan", D.scanQ[i] >= Math.max(8,1.6*D.scanQN[i])],
+    [D.medReady[i]+D.surgReady[i]+D.matReady[i], "Cleared, waiting to go home", D.medReady[i] >= D.medReadyN[i]+6],
+    [sum(D.medDisch,i-23,i+1) + sum(D.surgDisch,i-23,i+1) + sum(D.matDisch,i-23,i+1), "Discharged from wards, last 24 h"],
+  ];
+  return `
+  <section class="pagehead"><h1>Whole hospital</h1><span class="pill" style="--sev:${SEV[overall]}">${headline}</span>
+    ${per.s ? `<a class="chip season" href="#seasons" style="text-decoration:none">${esc(per.t)} · surge plan →</a>` : ""}
+    <a class="btn cta" href="#log" style="margin-left:auto">＋ Log a patient</a></section>
+  <p class="note"><strong>Live now.</strong> A simulated hospital running on Riyadh time, with the AI forecasting the next 8 hours. ${today ? `${today} patient${today>1?"s":""} logged by your team in the last 24 h ${today>1?"are":"is"} included.` : "Patients your team logs appear here straight away."}</p>
+  <section class="tiles" aria-label="Departments">${tiles}</section>
+  <div class="cols">
+    <section class="panel"><div class="panel-head"><h2>Patient journey right now</h2><span class="label">Whole hospital</span></div>
+      <div class="journey">${steps.map(([n,t,f]) => `<div class="step ${f?'flag':''}"><span class="n">${n}</span><span class="t">${t}</span></div>`).join("")}</div>
+      <p class="note">A delay in one place blocks the next: a slow scan keeps a bed full, the ED patient waits for that bed, and a planned operation is cancelled. Flow Care watches the whole chain.</p>
+    </section>
+    <section class="panel"><div class="panel-head"><h2>Hospital-wide actions</h2><span class="label">${all.length ? all.length+" active" : "All clear"}</span></div>
+      <div class="list">${actionsHTML(all.slice().sort((a,b)=>order[a.sev]-order[b.sev]).slice(0, 6))}</div>${all.length>6?`<p class="note">${all.length-6} more in the department pages.</p>`:""}</section>
+  </div>
+  <section class="panel"><div class="panel-head"><h2>How accurate is the AI?</h2><span class="label">Tested on 2026 so far · never seen in training</span></div>
+    ${proofHTML([accF("med","beds").map((v,j)=>j?`Internal Medicine: `+v:v), accW("med"), accW("ed"),
+      [`± ${M.daily_7day.ed_visits["Hajj days & Eid al-Adha"].ai_error} visits/day`, `Error forecasting ED visits 7 days ahead during Hajj 2026 (same-as-last-week guess: ± ${M.daily_7day.ed_visits["Hajj days & Eid al-Adha"].last_week_guess_error}).`]])}
+  </section>`;
+}
+
+function viewDept(id){
+  const dep = DEPTS.find(d => d.id===id), st = deptState(id, i), list = recs(i).filter(r => r.dept===id);
+  let stats="", tabs={}, facts=[], proof=[], logDest = id;
+  const dayStart = i - dt(i).getUTCHours();
+  if (id==="medicine"){
+    stats = stat(`${D.med[i]}${small(" / "+CAP.med)}`, "Beds in use", sevOf(pct(D.med[i],CAP.med)))
+      + stat(`${Math.round(D.medF[i])}`, `AI forecast for ${hh(dt(i+8))}`, sevOf(pct(D.medF[i],CAP.med)))
+      + stat(D.medReady[i], "Cleared, waiting to go home", D.medReady[i] >= D.medReadyN[i]+6 ? "warn":"ok")
+      + stat(D.bMed[i], "Waiting in the ED for a medical bed", D.bMed[i]>=3?"warn":"ok")
+      + stat(D.scanQ[i], `Waiting for a scan (normal ${Math.round(D.scanQN[i])})`, D.scanQ[i] >= Math.max(8,1.6*D.scanQN[i]) ? "warn":"ok");
+    tabs = {beds:{tab:"Medical wards", label:"Medical wards", series:D.med, f:D.medF, cap:CAP.med, warnLine:117}};
+    facts = [["Discharges since midnight", sum(D.medDisch, dayStart, i+1)], ["Discharges last 24 h", sum(D.medDisch, i-23, i+1)], ["Patients your team logged here", loggedIn("medicine", i)], ["AI chance of full ward within 8 h", Math.round(D.medP[i]*100)+"%"]];
+    proof = [accF("med","beds"), accW("med")];
+  }
+  if (id==="surgery"){
+    stats = stat(`${D.surg[i]}${small(" / "+CAP.surg)}`, "Beds in use", sevOf(pct(D.surg[i],CAP.surg)))
+      + stat(`${Math.round(D.surgF[i])}`, `AI forecast for ${hh(dt(i+8))}`, sevOf(pct(D.surgF[i],CAP.surg)))
+      + stat(sinceMidnight(D.surgDone, i), "Planned operations done today")
+      + stat(sinceMidnight(D.surgCancel, i), "Cancelled today (no bed)", sinceMidnight(D.surgCancel,i)?"crit":"ok")
+      + stat(D.surgReady[i], "Cleared, waiting to go home");
+    tabs = {beds:{tab:"Surgical wards", label:"Surgical wards", series:D.surg, f:D.surgF, cap:CAP.surg, warnLine:50}};
+    facts = [["Operations cancelled, last 7 days", sum(D.surgCancel, i-167, i+1)], ["Operations done, last 7 days", sum(D.surgDone, i-167, i+1)], ["Surgical patients waiting in ED", D.bSurg[i]], ["Patients your team logged here", loggedIn("surgery", i)], ["AI chance of full ward within 8 h", Math.round(D.surgP[i]*100)+"%"]];
+    proof = [accF("surg","beds"), accW("surg")];
+  }
+  if (id==="ed"){
+    const arr24 = sum(D.edArr, i-23, i+1), norm24 = sum(D.edArrN, i-23, i+1);
+    stats = stat(`${D.edTotal[i]}${small(" / "+CAP.ed)}`, "Patients in the ED", D.edTotal[i]>=CAP.ed?"crit":D.edTotal[i]>=36?"warn":"ok")
+      + stat(D.edWait[i], "Admitted, waiting for a bed", D.edWait[i]>=8?"crit":D.edWait[i]>=3?"warn":"ok")
+      + stat(Math.round(D.edWaitF[i]), `Waiting for a bed at ${hh(dt(i+8))} (AI)`, D.edWaitF[i]>=8?"crit":D.edWaitF[i]>=3?"warn":"ok")
+      + stat(D.edLongest[i] ? D.edLongest[i].toFixed(1)+" h" : "—", "Longest wait for a bed", D.edLongest[i]>=6?"warn":"ok")
+      + stat(arr24, `Arrivals last 24 h (normal ${Math.round(norm24)})`, arr24 > 1.2*norm24 ? "warn":"ok");
+    tabs = {total:{tab:"Patients in ED", label:"Patients in the ED", series:D.edTotal, f:D.edTotalF, cap:null, warnLine:CAP.ed},
+            wait:{tab:"Waiting for a bed", label:"Admitted patients waiting for a bed", series:D.edWait, f:D.edWaitF, cap:null, warnLine:8}};
+    facts = [["Heat-illness arrivals, last 24 h", sum(D.edHeat, i-23, i+1)], ["Waiting for a medical bed", D.bMed[i]], ["Waiting for a surgical bed", D.bSurg[i]], ["Waiting for an ICU bed", D.bIcu[i]], ["Transferred out for lack of beds, 24 h", sum(D.transfers, i-23, i+1)], ["Patients your team logged here", loggedIn("ed", i)]];
+    proof = [accF("ed_total","patients"), accW("ed")];
+  }
+  if (id==="obgyn"){
+    logDest = "labour";
+    stats = stat(`${D.mat[i]}${small(" / "+CAP.mat)}`, "Maternity beds in use", sevOf(pct(D.mat[i],CAP.mat)))
+      + stat(`${Math.round(D.matF[i])}`, `AI forecast for ${hh(dt(i+8))}`, sevOf(pct(D.matF[i],CAP.mat)))
+      + stat(`${D.ld[i]}${small(" / "+CAP.ld)}`, "Delivery rooms in use", D.ld[i]>=CAP.ld?"crit":D.ld[i]>=8?"warn":"ok")
+      + stat(D.obTriage[i], "In labour, waiting for a room", D.obTriage[i]?"crit":"ok")
+      + stat(sum(D.births, i-23, i+1), "Births, last 24 h");
+    tabs = {mat:{tab:"Maternity ward", label:"Maternity ward", series:D.mat, f:D.matF, cap:CAP.mat, warnLine:44},
+            ld:{tab:"Delivery rooms", label:"Delivery rooms in use", series:D.ld, f:D.ldF, cap:null, warnLine:CAP.ld}};
+    facts = [["Mothers cleared to go home", D.matReady[i]], ["Delivered, waiting for a ward bed", D.ldBlocked[i]], ["Planned caesareans today", sinceMidnight(D.csDone, i)], ["Planned caesareans postponed today", sinceMidnight(D.csPost, i)], ["Patients your team logged here", loggedIn("labour", i) + loggedIn("maternity", i)], ["AI chance ward is full within 8 h", Math.round(D.matP[i]*100)+"%"]];
+    proof = [accF("mat","beds"), accW("mat"), [`± ${F.ld.ai_error} rooms`, `Delivery rooms 8 h ahead (simple guess: ± ${F.ld.simple_guess_error}). Labour is hard to predict, so this is only ${F.ld.improvement_pct}% better.`]];
+  }
+  if (id==="icu"){
+    let nl = i + (dt(i).getUTCHours() < 8 ? 0 : 24); while ([5,6].includes(dt(nl).getUTCDay())) nl += 24;
+    stats = stat(`${D.icu[i]}${small(" / "+CAP.icu)}`, "Beds in use", CAP.icu-D.icu[i]<=1?"crit":CAP.icu-D.icu[i]<=3?"warn":"ok")
+      + stat(CAP.icu - D.icu[i], "Free beds", CAP.icu-D.icu[i]<=1?"crit":"ok")
+      + stat(D.bIcu[i], "Waiting in the ED for ICU", D.bIcu[i]?"crit":"ok")
+      + stat(D.icuBlocked[i], "Ready to step down, no ward bed", D.icuBlocked[i]?"warn":"ok")
+      + stat(sum(D.edHeat, i-23, i+1), "Heat-illness arrivals, 24 h", sum(D.edHeat,i-23,i+1)>=10?"warn":"ok");
+    tabs = {beds:{tab:"ICU beds", label:"ICU beds", series:D.icu, f:D.icuF, cap:null, warnLine:15}};
+    facts = [["Next planned operating list (some cases need ICU)", `${DAYS[dt(nl).getUTCDay()]} 08:00`], ["Medical ward beds free for step-down", CAP.med - D.med[i]], ["Surgical ward beds free for step-down", CAP.surg - D.surg[i]], ["Patients your team logged here", loggedIn("icu", i)]];
+    proof = [[`± ${F.icu.ai_error} beds`, `ICU forecast 8 h ahead (simple guess: ± ${F.icu.simple_guess_error}). Not better yet: the ICU is small and changes slowly, so ICU warnings use clear rules (free beds, patients waiting) instead.`, true],
+             [`± ${M.daily_7day.icu_peak["Hajj days & Eid al-Adha"].ai_error} beds`, `Peak ICU use forecast 7 days ahead during Hajj 2026 (without the calendar: ± ${M.daily_7day.icu_peak["Hajj days & Eid al-Adha"].ai_without_calendar_error}).`]];
+  }
+  return `
+  <section class="pagehead"><h1>${dep.name}</h1><span class="pill" style="--sev:${SEV[st.sev]}">${STATUS[st.sev]}</span><span class="note">${dep.blurb}</span>
+    <a class="btn cta" href="#log" data-preset="${logDest}" style="margin-left:auto">＋ Log a patient here</a></section>
+  <section class="stats">${stats}</section>
+  <div class="cols">
+    ${chartPanel(id, tabs)}
+    <section class="panel"><div class="panel-head"><h2>Warnings &amp; actions</h2><span class="label">${list.length ? list.length+" active" : "All clear"}</span></div>
+      <div class="list">${actionsHTML(list)}</div></section>
+  </div>
+  <div class="cols">
+    <section class="panel"><div class="panel-head"><h2>Details</h2><span class="label">${esc(dayName(dt(i)))} · ${hh(dt(i))}</span></div>
+      <div class="facts">${facts.map(([a,b]) => `<span>${esc(a)}</span><span>${b}</span>`).join("")}</div></section>
+    <section class="panel"><div class="panel-head"><h2>How accurate is the AI here?</h2></div>${proofHTML(proof)}</section>
+  </div>`;
+}
+
+/* ---------- Log a patient ---------- */
+const form = {dest:null, age:"Adult", sex:"F", triage:3, stay:3, scan:false, heat:false};
+let taps = 0, t0 = null, lastLogged = null, lastError = null, busy = false;
+const OPTS = {age:["Child","Adult","65+"], sex:["F","M"], triage:[1,2,3,4,5], stay:[1,2,3,5,7], scan:[false,true], heat:[false,true]};
+function chipRow(field, label){
+  return `<div class="q"><h3>${label}</h3><div class="chips">${OPTS[field].map(v => `<button class="chip-btn" type="button" data-f="${field}" data-v="${v}" aria-pressed="${String(form[field])===String(v)}">${v===true?"Yes":v===false?"No":field==="stay"?`${v} day${v>1?"s":""}`:field==="triage"?`Level ${v}`:v}</button>`).join("")}</div></div>`;
+}
+function newCode(){ const a = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let s = ""; for (let k=0;k<4;k++) s += a[Math.floor(Math.random()*a.length)]; const d = local(Date.now()); return `FC-${pad(d.getUTCDate())}${pad(d.getUTCMonth()+1)}-${s}`; }
+function leavesAt(p){ const h = p.dest==="ed" ? 4 : (+p.stayDays||2)*24 + (p.dest==="labour"?10:0); return p.loggedAt + h*3600e3; }
+
+function viewLog(){
+  const where = form.dest;
+  const storeNote = store==="shared" ? `<span class="tag in">Shared with your team</span>` :
+    store==="local" ? `<span class="tag">Saved on this device only</span>` :
+    store==="slow" ? `<span class="tag">Shared list not reachable yet</span>` :
+    store==="error" ? `<span class="tag">Shared list unavailable · saving on this device</span>` : `<span class="tag">Connecting…</span>`;
+  const destButtons = Object.entries(DEST).map(([k,v]) => `<button class="chip-btn dest" type="button" data-f="dest" data-v="${k}" aria-pressed="${where===k}"><span>${v.label}</span><small>${v.hint}</small></button>`).join("");
+  let details = "";
+  if (where){
+    details += chipRow("age","Age group") + (where==="labour"||where==="maternity" ? "" : chipRow("sex","Sex"));
+    if (where==="ed") details += chipRow("triage","Triage level (1 = most urgent)") + chipRow("heat","Heat illness?");
+    else details += chipRow("stay", where==="labour" ? "Expected stay after delivery" : "Expected stay") ;
+    if (where==="medicine"||where==="surgery") details += chipRow("scan","Needs a scan?");
+    if (where==="medicine"||where==="icu") details += chipRow("heat","Heat illness?");
+  }
+  const dest = where ? DEST[where] : null;
+  const now = Date.now();
+  const list = patients.filter(p => p.status!=="out" ? true : p.outAt > now - 864e5).slice(0, 60);
+  const rows = list.map(p => {
+    const gone = p.status==="out", expired = !gone && leavesAt(p) < now;
+    const d = local(p.loggedAt);
+    const st = gone ? `Discharged ${hm(p.outAt)}` : expired ? "Expected to have left" : `Expected out ${dayName(local(leavesAt(p)))} ${hm(leavesAt(p))}`;
+    return `<div class="prow ${gone||expired?'out':''}">
+      <span class="code">${esc(p.code)}</span><span class="tag ${gone||expired?'':'in'}">${esc(DEST[p.dest]?.short || p.dest)}</span>
+      <span class="meta">Logged ${dayName(d)} ${hm(p.loggedAt)} · ${esc(p.age||"")}${p.sex?" · "+esc(p.sex):""}${p.dest==="ed"?` · triage ${p.triage}`:""}${p.scan&&!p.scanAt?" · waiting for scan":""}${p.heat?" · heat illness":""}${p.by && p.by===myId?" · you":""}<br>${st}</span>
+      ${canWrite ? `${!gone && p.scan && !p.scanAt ? `<button class="btn small" type="button" data-scan="${esc(p.id)}">Scan done</button>` : ""}
+      ${!gone ? `<button class="btn small" type="button" data-out="${esc(p.id)}">Discharge</button>` : ""}
+      <button class="btn small" type="button" data-del="${esc(p.id)}" aria-label="Remove ${esc(p.code)}">Remove</button>` : ""}
+    </div>`;
+  }).join("");
+  let done = "";
+  if (lastLogged){
+    const L = lastLogged, dep = {ed:"ed", medicine:"medicine", surgery:"surgery", labour:"obgyn", maternity:"obgyn", icu:"icu"}[L.dest];
+    const st = deptState(dep, i);
+    done = `<div class="done-card" role="status"><span class="label" style="color:var(--ok)">Logged</span>
+      <p style="margin:0"><b>${esc(L.code)}</b> → ${esc(DEST[L.dest].label)} at ${hm(L.at)}.</p>
+      <p class="note" style="margin:0">Took <strong>${L.taps} tap${L.taps>1?"s":""}</strong> and <strong>${L.secs} second${L.secs>1?"s":""}</strong>. ${esc(DEPTS.find(d=>d.id===dep).name)} is now ${esc(st.big)} ${esc(st.sub)} · AI forecast ${esc(st.f)}.</p>
+      <div><a class="btn small" href="#${dep}">See ${esc(DEPTS.find(d=>d.id===dep).name)} →</a></div></div>`;
+  }
+  return `
+  <section class="pagehead"><h1>Log a patient</h1>${storeNote}</section>
+  <p class="lede">Two taps: choose where the patient is going, then press Log. Everything else is already filled in. No name or ID number is needed: Flow Care tracks patient flow, not medical records.</p>
+  ${!canWrite ? `<p class="note"><strong>You can view this list but not log patients.</strong> Ask the owner to give you Contributor access in the Share menu.</p>` : ""}
+  ${lastError ? `<p class="note" style="color:var(--crit)">${esc(lastError)}</p>` : ""}
+  ${done}
+  <div class="cols">
+    <section class="panel">
+      <div class="q"><h3>Where is the patient going?</h3><div class="chips">${destButtons}</div></div>
+      ${details}
+      <button class="bigbtn" id="logBtn" type="button" ${!where || !canWrite || busy ? "disabled" : ""}>${where ? `Log patient → ${esc(dest.label)}` : "Choose where the patient is going"}</button>
+      <p class="note">Time is set automatically (${hm(Date.now())}, Riyadh). In a real hospital most of this would arrive automatically from the hospital's own system; this is the quick manual way.</p>
+    </section>
+    <section class="panel"><div class="panel-head"><h2>Logged patients</h2><span class="label">${patients.filter(p=>p.status!=="out" && leavesAt(p) > now).length} in hospital now</span></div>
+      <div class="plist">${rows || `<p class="calm">No patients logged yet. Log one and watch its department, forecast and warnings update.</p>`}</div></section>
+  </div>`;
+}
+
+async function doLog(){
+  if (!form.dest || busy) return;
+  busy = true; taps++;
+  const now = Date.now();
+  const p = {id:"", code:newCode(), dest:form.dest, age:form.age, sex:(form.dest==="labour"||form.dest==="maternity")?"F":form.sex,
+    triage:form.triage, stayDays:form.stay, scan: (form.dest==="medicine"||form.dest==="surgery") ? form.scan : false,
+    heat: (form.dest==="ed"||form.dest==="medicine"||form.dest==="icu") ? form.heat : false,
+    loggedAt:now, status:"in"};
+  p.id = p.code; if (myId) p.by = myId;
+  lastError = null;
+  const ok = await savePatient(p);
+  busy = false;
+  if (ok){
+    lastLogged = {code:p.code, dest:p.dest, at:now, taps, secs: Math.max(1, Math.round((now - (t0||now))/1000))};
+    taps = 0; t0 = null; form.dest = null; form.scan = false; form.heat = false;
+  }
+  render();
+}
+
+/* ---------- Hajj & Ramadan ---------- */
+const DD = D.daily;
+const dIdx = s => DD.date.indexOf(s);
+const todayStr = () => { const d = local(Date.now()); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`; };
+const METRICS = { ed_visits:{tab:"ED visits per day"}, boarders_peak:{tab:"Peak waiting for a bed"}, heat_cases:{tab:"Heat illness"}, icu_peak:{tab:"Peak ICU beds"} };
+const PREVIEW = {
+  hajj:{name:"Hajj 2027", from:"2027-04-10", to:"2027-06-10", pick:"2027-05-15",
+        blurb:"Day of Arafah expected around 15 May 2027 (dates depend on the moon sighting)."},
+  ramadan:{name:"Ramadan 2027", from:"2027-01-25", to:"2027-03-25", pick:"2027-02-20",
+        blurb:"Ramadan expected to start around 8 February 2027, Eid al-Fitr around 10 March."},
+};
+let nMetric = "ed_visits", nDay = 0, pSeason = "hajj", pMetric = "ed_visits", pDay = null;
+
+function surgePlan(di){
+  const g = k => DD[k][di], f = k => DD[k+"_f"][di], nrm = k => DD[k+"_normal"][di];
+  const v = f("ed_visits"), vn = nrm("ed_visits"), extra = v - vn, rise = Math.round(100*extra/vn);
+  const items = [];
+  if (rise >= 8) items.push(`<b>ED staffing:</b> about ${Math.round(extra)} extra visits expected (${rise}% above a normal ${DAYS[new Date(DD.date[di]+"T00:00Z").getUTCDay()]}). Add ${Math.max(1,Math.ceil(extra/30))} nurse${Math.ceil(extra/30)>1?"s":""} and ${Math.max(1,Math.ceil(extra/60))} doctor${Math.ceil(extra/60)>1?"s":""} per shift.`);
+  if (f("heat_cases") >= 5) items.push(`<b>Heat illness:</b> about ${Math.round(f("heat_cases"))} cases expected. Open the cooling bay, stock cooling supplies, and run heat-stroke drills.`);
+  if (f("heat_cases") >= 20 || f("icu_peak") >= 15) items.push(`<b>ICU:</b> peak use forecast at ${Math.round(f("icu_peak"))} of ${CAP.icu} beds. Reserve 2 beds for heat stroke and postpone planned operations that need ICU.`);
+  if (f("boarders_peak") >= 8) items.push(`<b>Beds:</b> up to ${Math.round(f("boarders_peak"))} admitted patients may wait in the ED. Open ${Math.ceil(f("boarders_peak")*0.6)} surge beds, run a discharge lounge, and postpone non-urgent planned operations. Confirm transfer agreements with nearby hospitals.`);
+  else if (f("boarders_peak") >= 4) items.push(`<b>Beds:</b> some ED waiting expected (peak about ${Math.round(f("boarders_peak"))}). Start discharges before 11:00.`);
+  if (g("ramadan")) items.push(`<b>Ramadan pattern:</b> move staff to the evening; arrivals peak from 7 pm to midnight. Plan discharges for 10:00–15:00 and keep one scanner open in the evening.`);
+  if (g("eid")) items.push(`<b>Eid holiday:</b> keep a discharge team, pharmacy and imaging on duty; discharges usually slow down.`);
+  if (!items.length) items.push("No surge expected. Normal staffing and bed plan.");
+  return {v, vn, rise, items};
+}
+
+function dailyChart(a, b, m, opts){
+  // opts: actualUntil (index, inclusive) or -1, forecastFrom, mark, bands
+  const n = b - a + 1, W=640, H=240, L=44, R=14, Tp=14, B=34;
+  const act = DD[m].slice(a, b+1), fc = DD[m+"_f"].slice(a, b+1), nor = DD[m+"_normal"].slice(a, b+1);
+  const shownAct = act.filter((_,j) => a+j <= opts.actualUntil), shownF = fc.filter((_,j) => a+j >= opts.forecastFrom);
+  const hi = Math.max(5, Math.ceil(Math.max(...shownAct, ...shownF, ...nor)*1.1/10)*10);
+  const step = hi > 200 ? 50 : hi > 80 ? 20 : hi > 30 ? 10 : 5;
+  const x = j => L + j*(W-L-R)/Math.max(1,n-1), y = v => Tp + (hi-v)*(H-Tp-B)/hi;
+  let s = "";
+  const band = (key, color, label, dy) => { let j=0; while (j<n){ if (DD[key][a+j]){ let e=j; while (e+1<n && DD[key][a+e+1]) e++;
+      s += `<rect x="${x(j)-2}" y="${Tp}" width="${x(e)-x(j)+4}" height="${H-Tp-B}" fill="${color}" opacity=".12"/>`;
+      if (label) s += `<text x="${(x(j)+x(e))/2}" y="${Tp+dy}" fill="${color}" font-size="10.5" text-anchor="middle">${label}</text>`; j=e+1; } else j++; } };
+  band("hajj_season","var(--gold)","",12); band("hajj_peak","var(--crit)","Hajj days",12); band("ramadan","var(--gold)","Ramadan",12); band("eid","var(--accent)","Eid",26);
+  for (let v=0; v<=hi; v+=step){
+    s += `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L-8}" y="${y(v)+4}" fill="var(--muted)" font-size="11" text-anchor="end" font-family="var(--mono)">${v}</text>`;
+  }
+  const every = n > 30 ? 14 : n > 14 ? 3 : 1;
+  for (let j=0;j<n;j++){ const d = new Date(DD.date[a+j]+"T00:00Z");
+    if ((n > 30 && (d.getUTCDate()===1 || d.getUTCDate()===15)) || (n <= 30 && j % every === 0))
+      s += `<text x="${x(j)}" y="${H-12}" fill="var(--muted)" font-size="11" text-anchor="middle">${n<=30?DAYS[d.getUTCDay()]+" ":""}${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}</text>`; }
+  const line = (arr, j0, attrs) => arr.length ? `<polyline points="${arr.map((v,j)=>`${x(j+j0).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}" fill="none" ${attrs}/>` : "";
+  s += line(nor, 0, `stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="2 4"`);
+  s += line(shownAct, 0, `stroke="var(--fg)" stroke-opacity=".8" stroke-width="1.8"`);
+  const j0 = Math.max(0, opts.forecastFrom - a);
+  s += line(shownF, j0, `stroke="var(--accent)" stroke-width="2.2" stroke-dasharray="6 4"`);
+  if (opts.today != null && opts.today >= a && opts.today <= b) s += `<line x1="${x(opts.today-a)}" x2="${x(opts.today-a)}" y1="${Tp}" y2="${H-B}" stroke="var(--fg)" stroke-opacity=".35"/><text x="${x(opts.today-a)+4}" y="${H-B-6}" fill="var(--fg)" font-size="10.5">Today</text>`;
+  if (opts.mark != null && opts.mark >= a && opts.mark <= b) s += `<circle cx="${x(opts.mark-a)}" cy="${y(DD[m+"_f"][opts.mark])}" r="5.5" fill="var(--bg)" stroke="var(--gold)" stroke-width="2.4"/>`;
+  return s;
+}
+function planPanel(di, title, note){
+  const plan = surgePlan(di), hajj = DD.hajj_season[di] || DD.hajj_peak[di];
+  return `<section class="panel"><div class="panel-head"><h2>${title}</h2><span class="label">${esc(note)}</span></div>
+    <div class="stats">
+      ${stat(Math.round(plan.v), `ED visits forecast (normal ${Math.round(plan.vn)})`, plan.rise>=15?"crit":plan.rise>=8?"warn":"ok")}
+      ${stat(Math.round(DD.boarders_peak_f[di]), "Peak waiting for a bed", DD.boarders_peak_f[di]>=8?"crit":DD.boarders_peak_f[di]>=4?"warn":"ok")}
+      ${hajj ? stat(Math.round(DD.heat_cases_f[di]), "Heat-illness cases", DD.heat_cases_f[di]>=20?"crit":DD.heat_cases_f[di]>=5?"warn":"ok") : stat((plan.rise>=0?"+":"")+plan.rise+"%", "ED visits vs a normal day", plan.rise>=15?"crit":plan.rise>=8?"warn":"ok")}
+      ${stat(Math.round(DD.icu_peak_f[di])+small(" / "+CAP.icu), "Peak ICU beds", DD.icu_peak_f[di]>=15?"crit":DD.icu_peak_f[di]>=13?"warn":"ok")}
+    </div>
+    <div class="plan"><ul>${plan.items.map(t => `<li>${t}</li>`).join("")}</ul></div></section>`;
+}
+
+function viewSeasons(){
+  const today = dIdx(todayStr());
+  const cd = (ms) => Math.max(0, Math.ceil((ms - Date.now() - RIYADH) / 864e5));
+  const nextRam = RAMADAN.map(r=>r[0]).find(t => t > Date.now()), nextAr = Object.values(ARAFAH).find(t => t > Date.now());
+  const per = period(i);
+  // next 7 days
+  const a = Math.max(0, today - 14), b = Math.min(DD.date.length - 1, today + 6);
+  const m = nMetric, sel = today + nDay;
+  const dayTabs = [...Array(7).keys()].map(j => { const s = DD.date[today+j]; return s ? `<button class="tab" type="button" data-nday="${j}" aria-pressed="${j===nDay}">${j===0?"Today":j===1?"Tomorrow":dayLabel(s)}</button>` : ""; }).join("");
+  // preview
+  const P = PREVIEW[pSeason]; if (!pDay || pDay < P.from || pDay > P.to) pDay = P.pick;
+  const pa = dIdx(P.from), pb = dIdx(P.to), pd = dIdx(pDay);
+  const dm = M.daily_7day, hm2 = M.seasonal_check;
+  const per2 = pSeason==="hajj" ? ["Hajj season","Hajj days & Eid al-Adha"] : ["Ramadan"];
+  const rows = Object.entries(METRICS).flatMap(([k,mm]) => per2.filter(p => dm[k] && dm[k][p] && !(k==="heat_cases" && pSeason==="ramadan")).map(p => {
+    const r = dm[k][p], best = Math.min(r.ai_error, r.ai_without_calendar_error, r.last_week_guess_error);
+    const td = v => `<td class="${v===best?'best':''}">± ${v}</td>`;
+    return `<tr><td>${mm.tab} · ${p}</td>${td(r.ai_error)}${td(r.ai_without_calendar_error)}${td(r.last_week_guess_error)}</tr>`; })).join("");
+  const hourRows = per2.map(p => { const r = hm2.ed_total[p]; const best = Math.min(r.with_calendar, r.without_calendar, r.simple_guess);
+    const td = v => `<td class="${v===best?'best':''}">± ${v}</td>`;
+    return `<tr><td>Patients in ED, 8 h ahead · ${p}</td>${td(r.with_calendar)}${td(r.without_calendar)}${td(r.simple_guess)}</tr>`; }).join("");
+  const prof = D.arrivalProfile;
+  let profSvg = "";
+  if (pSeason==="ramadan"){
+    const W=640,H=200,L=40,R=12,Tp=12,B=28, hi=Math.ceil(Math.max(...prof.normal,...prof.ramadan)/2)*2;
+    const x = h => L + (h+0.5)*(W-L-R)/24, y = v => Tp + (hi-v)*(H-Tp-B)/hi, bw = (W-L-R)/24*0.36;
+    for (let v=0; v<=hi; v+=2) profSvg += `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L-6}" y="${y(v)+4}" fill="var(--muted)" font-size="11" text-anchor="end">${v}</text>`;
+    for (let h=0; h<24; h++){
+      profSvg += `<rect x="${x(h)-bw-1}" y="${y(prof.normal[h])}" width="${bw}" height="${y(0)-y(prof.normal[h])}" fill="var(--muted)" opacity=".55"/>`;
+      profSvg += `<rect x="${x(h)+1}" y="${y(prof.ramadan[h])}" width="${bw}" height="${y(0)-y(prof.ramadan[h])}" fill="var(--gold)"/>`;
+      if (h%3===0) profSvg += `<text x="${x(h)}" y="${H-10}" fill="var(--muted)" font-size="11" text-anchor="middle">${pad(h)}:00</text>`;
+    }
+  }
+  const tabsFor = (key, cur, noHeat) => Object.entries(METRICS).filter(([k]) => !(noHeat && k==="heat_cases")).map(([k,v]) => `<button class="tab" type="button" data-${key}="${k}" aria-pressed="${k===cur}">${v.tab}</button>`).join("");
+  return `
+  <section class="season-hero">
+    <div class="pagehead"><h1>Hajj &amp; Ramadan surge planning</h1></div>
+    <p class="lede">Every day the AI forecasts the week ahead, so the hospital can add beds and staff <strong style="color:var(--fg)">before</strong> a surge arrives. It knows the Islamic calendar: Ramadan, the Hajj season, the Day of Arafah and Eid.</p>
+    <div class="stats">
+      ${stat(esc(per.t), "Right now", per.s ? "warn" : "ok")}
+      ${nextRam ? stat(cd(nextRam)+small(" days"), `Until Ramadan 2027 (expected ${dayName(new Date(nextRam))})`) : ""}
+      ${nextAr ? stat(cd(nextAr)+small(" days"), `Until the Day of Arafah 2027 (expected ${dayName(new Date(nextAr))})`) : ""}
+      ${stat(`± ${dm.ed_visits["Hajj days & Eid al-Adha"].ai_error}`, `AI error, ED visits 7 days ahead, Hajj 2026 (without the calendar ± ${dm.ed_visits["Hajj days & Eid al-Adha"].ai_without_calendar_error})`)}
+    </div>
+  </section>
+
+  <div class="cols">
+    <section class="panel">
+      <div class="panel-head"><h2>Next 7 days</h2><div class="tabs">${tabsFor("nmetric", m, !DD.hajj_season.slice(today, today+7).some(Boolean))}</div></div>
+      <svg class="chart" viewBox="0 0 640 240" role="img" aria-label="Last 2 weeks and AI forecast for the next 7 days">${dailyChart(a, b, m, {actualUntil: today-1, forecastFrom: today, today, mark: sel})}</svg>
+      <div class="legend"><span><i style="border-color:var(--fg);opacity:.8"></i>Last 2 weeks</span><span><i style="border-color:var(--accent);border-top-style:dashed"></i>AI forecast</span><span><i style="border-color:var(--muted);border-top-style:dotted"></i>A normal day</span></div>
+      <div class="daychips">${dayTabs}</div>
+    </section>
+    ${planPanel(sel, `Plan · ${nDay===0?"Today":nDay===1?"Tomorrow":dayLabel(DD.date[sel])}`, "Updates every day")}
+  </div>
+
+  <div class="cols">
+  <section class="panel">
+    <div class="panel-head"><h2>Next season preview</h2>
+      <div class="seg" role="group" aria-label="Season">${Object.entries(PREVIEW).map(([k,v]) => `<button type="button" data-pseason="${k}" aria-pressed="${k===pSeason}">${v.name}</button>`).join("")}</div></div>
+    <p class="note">${esc(P.blurb)} This preview runs the AI on the simulated hospital; each day's forecast is the one Flow Care would show 7 days before. When the season is a week away, the plan above fills in by itself.</p>
+    <div class="tabs">${tabsFor("pmetric", pMetric, pSeason==="ramadan")}</div>
+    <svg class="chart" viewBox="0 0 640 240" role="img" aria-label="AI forecast for the coming season">${dailyChart(pa, pb, pMetric, {actualUntil: -1, forecastFrom: pa, mark: pd})}</svg>
+    <div class="legend"><span><i style="border-color:var(--accent);border-top-style:dashed"></i>AI forecast (7 days ahead)</span><span><i style="border-color:var(--muted);border-top-style:dotted"></i>A normal day</span></div>
+    <div class="dayctl"><span class="label">Plan for</span><input type="range" id="pday" min="${pa}" max="${pb}" value="${pd}" aria-label="Choose a day in the season"><span class="live" style="font-size:13px">${dayLabel(pDay)}</span></div>
+  </section>
+  ${planPanel(pd, `Expected plan · ${dayLabel(pDay)}`, PREVIEW[pSeason].name)}
+  </div>
+
+  ${pSeason==="ramadan" ? `<section class="panel"><div class="panel-head"><h2>When do ED patients arrive?</h2><span class="label">Average per hour</span></div>
+    <svg class="chart" viewBox="0 0 640 200" role="img" aria-label="ED arrivals by hour, Ramadan compared with normal days">${profSvg}</svg>
+    <div class="legend"><span><i style="border-color:var(--muted)"></i>Normal day</span><span><i style="border-color:var(--gold)"></i>Ramadan</span></div>
+    <p class="note">Ramadan changes when patients come more than how many, so Flow Care moves staff to the evening instead of the morning.</p></section>` : ""}
+
+  <section class="panel"><div class="panel-head"><h2>Tested on ${pSeason==="hajj" ? "Hajj" : "Ramadan"} 2026</h2><span class="label">Average error · lower is better</span></div>
+    <p class="note">The AI learned from 2023–2025, then was tested on this year's ${pSeason==="hajj" ? "Hajj" : "Ramadan"}, which it had never seen. We also trained it without the Islamic calendar to check it really learned the season.</p>
+    <div class="tbl-wrap"><table><thead><tr><th>Forecast</th><th>AI with calendar</th><th>AI without calendar</th><th>Simple guess</th></tr></thead>
+      <tbody>${rows}${hourRows}</tbody></table></div>
+  </section>`;
+}
+
+/* ============ events ============ */
+document.addEventListener("click", e => {
+  const t = e.target;
+  const dk = t.closest("button[data-k]"); if (dk){ decisions.set(dk.dataset.k, dk.dataset.v); render(); return; }
+  const ch = t.closest("[data-chart]"); if (ch){ chartTab[ch.dataset.chart] = ch.dataset.tab; render(); return; }
+  const fb = t.closest("button[data-f]");
+  if (fb){ if (!t0) t0 = Date.now(); taps++; const f = fb.dataset.f, v = fb.dataset.v;
+    form[f] = v==="true" ? true : v==="false" ? false : isNaN(+v) || f==="dest" || f==="age" || f==="sex" ? v : +v;
+    if (f==="dest") lastLogged = null;
+    render(); return; }
+  if (t.id === "logBtn"){ doLog(); return; }
+  const pre = t.closest("[data-preset]"); if (pre){ form.dest = pre.dataset.preset; t0 = Date.now(); taps = 1; lastLogged = null; return; }
+  const o = t.closest("[data-out]"); if (o){ changePatient(o.dataset.out, {status:"out", outAt: Date.now()}); return; }
+  const sc = t.closest("[data-scan]"); if (sc){ changePatient(sc.dataset.scan, {scanAt: Date.now()}); return; }
+  const dl = t.closest("[data-del]"); if (dl){ removePatient(dl.dataset.del); return; }
+  const nm = t.closest("[data-nmetric]"); if (nm){ nMetric = nm.dataset.nmetric; render(); return; }
+  const nd = t.closest("[data-nday]"); if (nd){ nDay = +nd.dataset.nday; render(); return; }
+  const ps = t.closest("[data-pseason]"); if (ps){ pSeason = ps.dataset.pseason; pDay = null; if (pSeason==="ramadan" && pMetric==="heat_cases") pMetric="ed_visits"; render(); return; }
+  const pm = t.closest("[data-pmetric]"); if (pm){ pMetric = pm.dataset.pmetric; render(); return; }
+});
+document.addEventListener("input", e => { if (e.target.id === "pday"){ const lab = e.target.nextElementSibling; if (lab) lab.textContent = dayLabel(DD.date[+e.target.value]); } });
+document.addEventListener("change", e => { if (e.target.id === "pday"){ pDay = DD.date[+e.target.value]; render(); } });
+
+/* ============ router + live clock ============ */
+const ROUTES = ["home", ...DEPTS.map(d=>d.id), "log", "seasons"];
+function renderNav(){
+  $("nav").innerHTML = `<a href="#home" ${route==="home"?'aria-current="page"':""}>Home</a>` +
+    DEPTS.map(d => `<a href="#${d.id}" ${route===d.id?'aria-current="page"':""} style="--sev:${SEV[deptState(d.id,i).sev]}">${d.name}<span class="dot"></span></a>`).join("") +
+    `<a href="#log" class="log-tab" ${route==="log"?'aria-current="page"':""}>＋ Log a patient</a>` +
+    `<a href="#seasons" class="season-tab" ${route==="seasons"?'aria-current="page"':""}>Hajj &amp; Ramadan</a>`;
+}
+function tickClock(){
+  const d = local(Date.now());
+  $("clock").textContent = `${dayName(d)} · ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+}
+function render(){
+  tickClock();
+  if (feedEnded){ $("view").innerHTML = `<section class="panel"><h2>The simulated feed has ended</h2><p class="calm">This prototype's hospital runs until 31 December 2027. Ask Claude to extend it.</p></section>`; return; }
+  const per = period(i);
+  $("period").textContent = per.t; $("period").className = "chip" + (per.s ? " season" : "");
+  renderNav();
+  const y = window.scrollY;
+  $("view").innerHTML = route==="home" ? viewHome() : route==="seasons" ? viewSeasons() : route==="log" ? viewLog() : viewDept(route);
+  window.scrollTo(0, y);
+}
+function syncTime(){
+  const k = idxOf(Date.now());
+  if (k > D.n - 9){ feedEnded = true; return true; }
+  const nk = Math.max(24, k);
+  if (nk !== i){ i = nk; applyOverlay(); return true; }
+  return false;
+}
+function onRoute(){
+  const r = location.hash.replace("#","");
+  const next = ROUTES.includes(r) ? r : "home";
+  const changed = next !== route; route = next; render();
+  if (changed) window.scrollTo(0,0);
+}
+window.addEventListener("hashchange", onRoute);
+$("brand").onclick = () => { location.hash = "#home"; };
+syncTime(); applyOverlay(); onRoute();
+setInterval(() => { if (syncTime()) render(); else tickClock(); }, 20000);
+setTimeout(connectStore, 0);
+</script>
